@@ -1,3 +1,102 @@
+<?php
+/*************************************************
+ * BACKEND (API)
+ *************************************************/
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+
+    header("Content-Type: application/json; charset=UTF-8");
+    ini_set("display_errors", 1);
+    error_reporting(E_ALL);
+
+    // ========================
+    // CONFIG BANCO
+    // ========================
+    $servername = "54.234.153.24";
+    $username   = "app_user";
+    $password   = getenv("DB_PASS");
+    $database   = "meubanco";
+
+    $conn = new mysqli($servername, $username, $password, $database);
+
+    if ($conn->connect_error) {
+        http_response_code(500);
+        echo json_encode(["erro" => "Falha na conexão"]);
+        exit;
+    }
+
+    // ========================
+    // RECEBER DADOS
+    // ========================
+    $input = json_decode(file_get_contents("php://input"), true);
+
+    $nome     = $input["nome"]     ?? null;
+    $endereco = $input["endereco"] ?? null;
+    $cidade   = $input["cidade"]   ?? null;
+    $cpf      = $input["cpf"]      ?? null;
+
+    if (!$nome || !$cpf) {
+        http_response_code(400);
+        echo json_encode(["erro" => "Nome e CPF são obrigatórios"]);
+        exit;
+    }
+
+    $host = gethostname();
+
+    // ========================
+    // 1️⃣ VERIFICAR CLIENTE
+    // ========================
+    $stmt = $conn->prepare("SELECT ClienteID FROM CRM WHERE Cpf = ?");
+    $stmt->bind_param("s", $cpf);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($result->num_rows > 0) {
+        $clienteID = $result->fetch_assoc()["ClienteID"];
+    } else {
+        $stmtInsert = $conn->prepare(
+            "INSERT INTO CRM (NomeCompleto, Endereco, Cidade, Cpf, Host)
+             VALUES (?, ?, ?, ?, ?)"
+        );
+        $stmtInsert->bind_param("sssss", $nome, $endereco, $cidade, $cpf, $host);
+        $stmtInsert->execute();
+        $clienteID = $stmtInsert->insert_id;
+        $stmtInsert->close();
+    }
+    $stmt->close();
+
+    // ========================
+    // 2️⃣ CRIAR PEDIDO
+    // ========================
+    $valorTotal     = rand(20, 300);
+    $formaPagamento = "PIX";
+    $statusPedido   = "PAGO";
+
+    $stmtPedido = $conn->prepare(
+        "INSERT INTO PEDIDOS (ClienteID, ValorTotal, FormaPagamento, StatusPedido)
+         VALUES (?, ?, ?, ?)"
+    );
+    $stmtPedido->bind_param("idss", $clienteID, $valorTotal, $formaPagamento, $statusPedido);
+    $stmtPedido->execute();
+    $pedidoID = $stmtPedido->insert_id;
+    $stmtPedido->close();
+
+    $conn->close();
+
+    // ========================
+    // RESPOSTA
+    // ========================
+    echo json_encode([
+        "mensagem"   => "Pedido criado com sucesso",
+        "cliente_id" => $clienteID,
+        "pedido_id"  => $pedidoID,
+        "valor"      => $valorTotal,
+        "host"       => $host
+    ]);
+
+    exit;
+}
+?>
+
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -6,89 +105,52 @@
 </head>
 <body>
 
-<?php
-ini_set("display_errors", 1);
-error_reporting(E_ALL);
+<h2>Sistema de Mercado</h2>
 
-echo "<h3>Sistema de Mercado</h3>";
-echo "Versão do PHP: " . phpversion() . "<br><br>";
+<form id="pedidoForm">
+    <label>Nome:</label><br>
+    <input type="text" id="nome" required><br><br>
 
-// ========================
-// CONFIG BANCO
-// ========================
-$servername = "54.234.153.24";
-$username   = "app_user";
-$password   = getenv("DB_PASS");
-$database   = "meubanco";
+    <label>Endereço:</label><br>
+    <input type="text" id="endereco"><br><br>
 
-$conn = new mysqli($servername, $username, $password, $database);
+    <label>Cidade:</label><br>
+    <input type="text" id="cidade"><br><br>
 
-if ($conn->connect_error) {
-    die("Erro de conexão: " . $conn->connect_error);
-}
+    <label>CPF:</label><br>
+    <input type="text" id="cpf" required><br><br>
 
-// ========================
-// DADOS DO CLIENTE (exemplo)
-// ========================
-$nome     = "Cliente Teste";
-$endereco = "Rua Central, 123";
-$cidade   = "São Paulo";
-$cpf      = strval(rand(10000000000, 99999999999));
-$host     = gethostname();
+    <button type="submit">Criar Pedido</button>
+</form>
 
-// ========================
-// 1️⃣ CADASTRAR CLIENTE
-// ========================
-$stmtCliente = $conn->prepare(
-    "INSERT INTO CRM (NomeCompleto, Endereco, Cidade, Cpf, Host)
-     VALUES (?, ?, ?, ?, ?)"
-);
+<p id="resultado"></p>
 
-$stmtCliente->bind_param(
-    "sssss",
-    $nome,
-    $endereco,
-    $cidade,
-    $cpf,
-    $host
-);
+<script>
+document.getElementById("pedidoForm").addEventListener("submit", function(e) {
+    e.preventDefault();
 
-$stmtCliente->execute();
-$clienteID = $stmtCliente->insert_id;
-$stmtCliente->close();
-
-echo "Cliente cadastrado (ID): $clienteID <br>";
-
-// ========================
-// 2️⃣ CRIAR PEDIDO
-// ========================
-$valorTotal     = rand(10, 300);
-$formaPagamento = "PIX";
-$statusPedido   = "PAGO";
-
-$stmtPedido = $conn->prepare(
-    "INSERT INTO PEDIDOS (ClienteID, ValorTotal, FormaPagamento, StatusPedido)
-     VALUES (?, ?, ?, ?)"
-);
-
-$stmtPedido->bind_param(
-    "idss",
-    $clienteID,
-    $valorTotal,
-    $formaPagamento,
-    $statusPedido
-);
-
-$stmtPedido->execute();
-$pedidoID = $stmtPedido->insert_id;
-$stmtPedido->close();
-
-echo "Pedido criado (ID): $pedidoID <br>";
-echo "Atendido pelo host: $host <br>";
-
-// ========================
-$conn->close();
-?>
+    fetch("", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            nome: document.getElementById("nome").value,
+            endereco: document.getElementById("endereco").value,
+            cidade: document.getElementById("cidade").value,
+            cpf: document.getElementById("cpf").value
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById("resultado").innerHTML =
+            "Pedido ID: " + data.pedido_id +
+            "<br>Valor: R$ " + data.valor +
+            "<br>Servidor: " + data.host;
+    })
+    .catch(() => {
+        document.getElementById("resultado").innerHTML = "Erro ao processar pedido";
+    });
+});
+</script>
 
 </body>
 </html>
