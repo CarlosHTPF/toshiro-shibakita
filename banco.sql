@@ -1,8 +1,23 @@
-CREATE TABLE dados (
-    AlunoID int,
-    Nome varchar(50),
-    Sobrenome varchar(50),
-    Endereco varchar(150),
-    Cidade varchar(50),
-    Host varchar(50)
+CREATE TABLE CRM (
+    ClienteID INT AUTO_INCREMENT PRIMARY KEY,
+    NomeCompleto VARCHAR(50) NOT NULL,
+    Endereco VARCHAR(150),
+    Cidade VARCHAR(50),
+    Cpf VARCHAR(11) UNIQUE NOT NULL,
+    Host VARCHAR(50)
 );
+
+
+CREATE TABLE PEDIDOS (
+    PedidoID INT AUTO_INCREMENT PRIMARY KEY,
+    ClienteID INT NOT NULL,
+    DataPedido DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ValorTotal DECIMAL(10,2) NOT NULL,
+    FormaPagamento VARCHAR(30),
+    StatusPedido VARCHAR(20) DEFAULT 'PENDENTE',
+
+    CONSTRAINT fk_pedidos_cliente
+        FOREIGN KEY (ClienteID)
+        REFERENCES CRM (ClienteID)
+);
+
