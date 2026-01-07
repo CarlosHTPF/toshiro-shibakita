@@ -20,7 +20,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     if ($conn->connect_error) {
         http_response_code(500);
-        echo json_encode(["erro" => "Falha na conexão"]);
+        echo json_encode(["erro" => "Falha na conexão com o banco"]);
         exit;
     }
 
@@ -29,35 +29,41 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     // ========================
     $input = json_decode(file_get_contents("php://input"), true);
 
-    $nome     = $input["nome"]     ?? null;
-    $endereco = $input["endereco"] ?? null;
-    $cidade   = $input["cidade"]   ?? null;
-    $cpf      = $input["cpf"]      ?? null;
+    $nome     = trim($input["nome"] ?? "");
+    $endereco = trim($input["endereco"] ?? "");
+    $cidade   = trim($input["cidade"] ?? "");
+    $cpf      = trim($input["cpf"] ?? "");
 
-    if (!$nome || !$cpf) {
+    if (empty($nome) || empty($cpf)) {
         http_response_code(400);
         echo json_encode(["erro" => "Nome e CPF são obrigatórios"]);
         exit;
     }
 
-    $host = gethostname();
-
     // ========================
-    // 1️⃣ VERIFICAR CLIENTE
+    // 1️⃣ VERIFICAR / CRIAR CLIENTE
     // ========================
-    $stmt = $conn->prepare("SELECT ClienteID FROM CRM WHERE Cpf = ?");
+    $stmt = $conn->prepare(
+        "SELECT cliente_id FROM clientes WHERE cpf = ?"
+    );
     $stmt->bind_param("s", $cpf);
     $stmt->execute();
     $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
-        $clienteID = $result->fetch_assoc()["ClienteID"];
+        $clienteID = $result->fetch_assoc()["cliente_id"];
     } else {
         $stmtInsert = $conn->prepare(
-            "INSERT INTO CRM (NomeCompleto, Endereco, Cidade, Cpf, Host)
-             VALUES (?, ?, ?, ?, ?)"
+            "INSERT INTO clientes (nome_completo, endereco, cidade, cpf)
+             VALUES (?, ?, ?, ?)"
         );
-        $stmtInsert->bind_param("sssss", $nome, $endereco, $cidade, $cpf, $host);
+        $stmtInsert->bind_param(
+            "ssss",
+            $nome,
+            $endereco,
+            $cidade,
+            $cpf
+        );
         $stmtInsert->execute();
         $clienteID = $stmtInsert->insert_id;
         $stmtInsert->close();
@@ -72,11 +78,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $statusPedido   = "PAGO";
 
     $stmtPedido = $conn->prepare(
-        "INSERT INTO PEDIDOS (ClienteID, ValorTotal, FormaPagamento, StatusPedido)
+        "INSERT INTO pedidos (cliente_id, valor_total, forma_pagamento, status_pedido)
          VALUES (?, ?, ?, ?)"
     );
-    $stmtPedido->bind_param("idss", $clienteID, $valorTotal, $formaPagamento, $statusPedido);
+    $stmtPedido->bind_param(
+        "idss",
+        $clienteID,
+        $valorTotal,
+        $formaPagamento,
+        $statusPedido
+    );
     $stmtPedido->execute();
+
     $pedidoID = $stmtPedido->insert_id;
     $stmtPedido->close();
 
@@ -89,23 +102,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         "mensagem"   => "Pedido criado com sucesso",
         "cliente_id" => $clienteID,
         "pedido_id"  => $pedidoID,
-        "valor"      => $valorTotal,
-        "host"       => $host
+        "valor"      => $valorTotal
     ]);
-
     exit;
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Sistema de Mercado</title>
+    <title>Sistema de Mini Mercado</title>
 </head>
 <body>
 
-<h2>Sistema de Mercado</h2>
+<h2>Sistema de Mini Mercado</h2>
 
 <form id="pedidoForm">
     <label>Nome:</label><br>
@@ -141,13 +151,18 @@ document.getElementById("pedidoForm").addEventListener("submit", function(e) {
     })
     .then(res => res.json())
     .then(data => {
+        if (data.erro) {
+            document.getElementById("resultado").innerHTML = data.erro;
+            return;
+        }
         document.getElementById("resultado").innerHTML =
+            "<strong>Pedido criado!</strong><br>" +
             "Pedido ID: " + data.pedido_id +
-            "<br>Valor: R$ " + data.valor +
-            "<br>Servidor: " + data.host;
+            "<br>Valor: R$ " + data.valor;
     })
     .catch(() => {
-        document.getElementById("resultado").innerHTML = "Erro ao processar pedido";
+        document.getElementById("resultado").innerHTML =
+            "Erro ao processar pedido";
     });
 });
 </script>
